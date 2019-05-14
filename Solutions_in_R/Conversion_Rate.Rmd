@@ -1,0 +1,166 @@
+---
+title: "Conversion Rate"
+author: "Qianqian Shan"
+date: "May 4, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "../data")
+```
+
+Load necessary libraries. 
+
+```{r, message = FALSE}
+load.libraries <- c('dplyr', 'rpart', 'ggplot2','corrplot' ,'randomForest')
+load.libraries
+sapply(load.libraries, require, character = TRUE)
+```
+
+Read data.
+```{r}
+data = read.csv('conversion_data.csv')
+head(data)
+str(data)
+summary(data)
+```
+
+
+
+
+```{r}
+data = subset(data, age < 80)
+summary(data)
+```
+
+
+
+
+```{r}
+category_vars <- names(data)[which(sapply(data, is.factor))]
+category_vars
+
+numeric_vars<- names(data)[which(sapply(data, is.integer))]
+numeric_vars
+```
+
+
+
+## Scatter matrix of features 
+
+```{r}
+num_loc <- which(names(data) %in% numeric_vars)[-length(numeric_vars)]
+num_loc
+
+categ_loc <- which(names(data) %in% category_vars)
+categ_loc
+
+y <- data['converted']
+
+make_plots <- function(data, xvar = xvar, yvar = yvar, fillvar = fillvar) {
+   print(ggplot(data = data, aes_string(x = xvar, y = yvar)) + 
+   geom_bar(stat = 'identity', aes_string(fill = fillvar)))
+}
+
+for (i in length(categ_loc)) {
+ summarized_data <- data %>% 
+                    group_by(eval(parse(text = category_vars[i]))) %>% 
+                    summarise(mean(converted))
+ names(summarized_data) <- c(category_vars[i], "coversion_rate")
+ print(make_plots(summarized_data, xvar = names(summarized_data)[1], 
+            yvar = names(summarized_data)[2], fillvar = names(summarized_data)[1]))
+}
+
+
+```
+
+
+###  Correlation analysis 
+```{r}
+corr_data = data 
+for (i in categ_loc) {
+  corr_data[, i] <- as.integer(as.factor(corr_data[, i]))
+}
+
+correlations <- cor(corr_data)
+corrplot(correlations, method = 'circle', type = 'full')
+
+```
+
+
+```{r}
+by_page <- data %>% 
+           group_by(total_pages_visited) %>% 
+           summarise(conversion_rate = mean(converted))
+by_page
+qplot(total_pages_visited, conversion_rate, data = by_page, geom = 'line')
+```
+
+
+```{r}
+data[, c('new_user', 'converted')] <- lapply(data[, c('new_user', 'converted')], as.factor)
+str(data)
+levels(data$country)[levels(data$country) == 'Germany'] <- 'DE'
+levels(data$country)[levels(data$country) == 'China'] <- 'CN'
+
+summary(data)
+```
+
+
+
+### Train a Random Forest Model 
+
+```{r}
+train_index <- sample(nrow(data), size = nrow(data) * 0.66)
+
+train <- data[train_index, ]
+test <- data[-train_index, ]
+
+rf = randomForest(x = train[, -ncol(train)], y = train[, ncol(train)], 
+                 xtest = test[, -ncol(test)], ytest = test[, ncol(train)], 
+                 ntree = 100, mtry = 3, keep.forest = TRUE)
+
+rf
+```
+
+
+
+
+```{r}
+y_col = ncol(train)
+removed_cols = which(names(train) %in% c('total_pages_visited', 'converted'))
+            
+
+rf = randomForest(x = train[, -removed_cols], y = train[, y_col], 
+                 xtest = test[, -removed_cols], ytest = test[, y_col], 
+                 ntree = 100, mtry = 3, keep.forest = TRUE, classwt = c(0.7, 0.3))
+rf
+```
+
+
+
+```{r}
+# Dotchart of variable importance as measured by a Random Forest
+varImpPlot(rf, type = 2)
+```
+
+
+
+```{r}
+# gives a graphical depiction of the marginal effect of a variable on the class probability (classification) or response (regression).
+op <- par(mfrow = c(2, 2))
+partialPlot(rf, train, country, 1)
+partialPlot(rf, train, age, 1)
+partialPlot(rf, train, new_user, 1)
+partialPlot(rf, train, source, 1)
+
+```
+
+
+
+```{r}
+
+tree = rpart(data$converted ~., data[, -removed_cols], control = rpart.control(maxdepth = 3), parms = list(prior = c(0.7, 0.3)))
+tree
+```
