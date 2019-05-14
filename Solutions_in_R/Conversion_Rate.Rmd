@@ -2,7 +2,10 @@
 title: "Conversion Rate"
 author: "Qianqian Shan"
 date: "May 4, 2019"
-output: html_document
+output: md_document
+variant: markdown_github
+
+
 ---
 
 ```{r setup, include=FALSE}
